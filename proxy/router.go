@@ -157,14 +157,6 @@ func NewRouter(srv *Server, opts *RouterOptions) *Router {
 	return rt
 }
 
-// Direct decides whether a path should directly access.
-func (rt *Router) Direct(path string) bool {
-	if rt.pattern == "" {
-		return false
-	}
-	return GlobsMatchPath(rt.pattern, path)
-}
-
 // ServveHTTP implements http handler.
 func (rt *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// sumdb handler
@@ -234,6 +226,14 @@ func (rt *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	log.Printf("------ --- %s [proxy]\n", r.URL)
 	rt.proxy.ServeHTTP(w, r)
 	return
+}
+
+// Direct decides whether a path should directly access.
+func (rt *Router) Direct(path string) bool {
+	if rt.pattern == "" {
+		return false
+	}
+	return GlobsMatchPath(rt.pattern, path)
 }
 
 // GlobsMatchPath reports whether any path prefix of target

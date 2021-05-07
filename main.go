@@ -75,6 +75,8 @@ func init() {
 }
 
 func main() {
+
+	proxy.CacheDir = cacheDir
 	log.SetPrefix("goproxy.io: ")
 	log.SetFlags(0)
 
@@ -84,13 +86,13 @@ func main() {
 		if excludeHost != "" {
 			log.Printf("ExcludeHost %s\n", excludeHost)
 		}
-		handle = &logger{proxy.NewRouter(proxy.NewServer(new(ops)), &proxy.RouterOptions{
+		handle = &logger{proxy.NewRouter(proxy.NewServer(new(loongsonOpt)), &proxy.RouterOptions{
 			Pattern:      excludeHost,
 			Proxy:        proxyHost,
 			DownloadRoot: downloadRoot,
 		})}
 	} else {
-		handle = &logger{proxy.NewServer(new(ops))}
+		handle = &logger{proxy.NewServer(new(loongsonOpt))}
 	}
 
 	server := &http.Server{Addr: listen, Handler: handle}

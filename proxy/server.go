@@ -6,13 +6,17 @@
 package proxy
 
 import (
+	"archive/zip"
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"path"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -21,6 +25,10 @@ import (
 	"golang.org/x/mod/module"
 )
 
+var(
+
+	CacheDir string
+)
 // A ServerOps provides the external operations
 // (accessing module information and so on) needed by the Server.
 type ServerOps interface {
@@ -117,6 +125,7 @@ func NewServer(ops ServerOps) *Server {
 
 // ServeHTTP is the server's implementation of http.Handler.
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+
 	ctx, err := s.ops.NewContext(r)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -128,6 +137,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		sumdb.Handler(w, r)
 		return
 	}
+
 
 	i := strings.Index(r.URL.Path, "/@")
 	if i < 0 {
@@ -183,9 +193,11 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			f, openErr = s.ops.Info(ctx, m)
 		case ".mod":
 			ctype = "text/plain; charset=UTF-8"
+
 			f, openErr = s.ops.GoMod(ctx, m)
 		case ".zip":
 			ctype = "application/octet-stream"
+
 			f, openErr = s.ops.Zip(ctx, m)
 		default:
 			http.Error(w, "request not recognized", http.StatusNotFound)
@@ -211,9 +223,29 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	http.ServeContent(w, r, what, info.ModTime(), f)
 }
 
+func genModInfo(m module.Version) []byte{
+
+	type ModInfo struct {
+		Version string
+		Time string
+	}
+	strs:= strings.Split(m.Version,"-")
+	if len(strs)!= 3 {
+		log.Printf("error format version\n")
+	}
+	t,_ := time.Parse("20060102150405","20210503173754")
+
+	info := ModInfo{
+		Version: m.Version,
+		Time: 	t.Format("2006-01-02T15:04:05Z"),
+	}
+	bs,_ := json.Marshal(info)
+	return bs
+}
+
 // MemFile returns an File containing the given in-memory content and modification time.
-func MemFile(data []byte, t time.Time) File {
-	return &memFile{bytes.NewReader(data), memStat{t, int64(len(data))}}
+func MemFile(name string,data []byte, t time.Time) File {
+	return &memFile{bytes.NewReader(data), memStat{name,t, int64(len(data))}}
 }
 
 type memFile struct {
@@ -231,12 +263,13 @@ func (f *memFile) Stat() (os.FileInfo, error) { return &f.stat, nil }
 func (f *memFile) Readdir(count int) ([]os.FileInfo, error) { return nil, os.ErrInvalid }
 
 type memStat struct {
+	name string
 	t    time.Time
 	size int64
 }
 
 // Name returns file name.
-func (s *memStat) Name() string { return "memfile" }
+func (s *memStat) Name() string { return s.name }
 
 // Size returns file size.
 func (s *memStat) Size() int64 { return s.size }
@@ -255,15 +288,67 @@ func (s *memStat) Sys() interface{} { return nil }
 
 // NewInfo returns a formatted info file for the given version, time pair.
 // The version should be a canonical semantic version.
-func NewInfo(version string, t time.Time) File {
+func NewInfo(m module.Version, t time.Time) File {
 	var info = struct {
 		Version string
 		Time    time.Time
-	}{version, t}
+	}{m.Version, t}
 	js, err := json.Marshal(info)
 	if err != nil {
 		// json.Marshal only fails for bad types; there are no bad types in info.
 		panic("unexpected json.Marshal failure")
 	}
-	return MemFile(js, t)
+	return MemFile(m.Version + ".info",js, t)
 }
+
+func NewGoMod(m module.Version) File {
+	data := "module " + m.Path
+	return MemFile(m.Version + ".mod",[]byte(data), time.Now())
+}
+
+
+func NewZip(srcFile string, m module.Version) File {
+
+
+	fmt.Println(filepath.Join(CacheDir,"loongson","pkg/mod/cache/download",m.Path,"@v",m.Version+".zip"))
+
+	//zipfile,_ := os.Create(filepath.Join(srcFile,"../../..","pkg/mod/cache/download",m.Path,"@v",m.Version+".zip"))
+	os.MkdirAll(filepath.Join(CacheDir,"loongson","pkg/mod/cache/download",m.Path,"@v"),0755)
+	zipfile, err := os.Create(filepath.Join(CacheDir,"loongson","pkg/mod/cache/download",m.Path,"@v",m.Version+".zip"))
+	if err != nil{
+		panic(err)
+	}
+	//defer zipfile.Close()
+
+	archive := zip.NewWriter(zipfile)
+	defer archive.Close()
+
+	filepath.Walk(srcFile, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+
+		header, err := zip.FileInfoHeader(info)
+		if err != nil {
+			return err
+		}
+
+		header.Name = filepath.Join(m.Path+"@"+m.Version,strings.TrimPrefix(path, srcFile+"/"))
+		header.Method = zip.Deflate
+		if ! info.IsDir() {
+		//	fmt.Println(header.Name)
+
+			writer, err := archive.CreateHeader(header)
+			file, err := os.Open(path)
+			if err != nil {
+				return err
+			}
+			defer file.Close()
+			_, err = io.Copy(writer, file)
+		}
+		return err
+	})
+	archive.Flush()
+	return zipfile
+}
+
