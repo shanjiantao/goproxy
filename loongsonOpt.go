@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"github.com/goproxyio/goproxy/v2/proxy"
 	"golang.org/x/mod/module"
@@ -68,14 +67,14 @@ func (*loongsonOpt)Latest(ctx context.Context, path string) (proxy.File, error) 
 }
 
 func (*loongsonOpt)	Info(ctx context.Context, m module.Version) (proxy.File, error) {
-	strs:= strings.Split(m.Version,"-")
-	if len(strs)!= 3 {
-		log.Printf("error format version\n")
-		return nil,errors.New("error format version\n")
-	}
-	t,_ := time.Parse("20060102150405",strs[1])
+	//strs:= strings.Split(m.Version,"-")
+	//if len(strs)!= 3 {
+	//	log.Printf("error format version\n")
+	//	return nil,errors.New("error format version\n")
+	//}
+	//t,_ := time.Parse("20060102150405",strs[1])
 
-	return proxy.NewInfo(m,t),nil
+	return proxy.NewInfo(m,time.Now()),nil
 }
 
 func (*loongsonOpt) GoMod(ctx context.Context, m module.Version) (proxy.File, error) {
