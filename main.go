@@ -29,6 +29,7 @@ import (
 	"os/signal"
 	"path"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -47,12 +48,15 @@ var listen, promListen string
 var cacheDir string
 var proxyHost string
 var excludeHost string
+var configPath string
+var config Config
 
 func init() {
-	flag.StringVar(&excludeHost, "exclude", "", "exclude host pattern, you can exclude internal Git services")
-	flag.StringVar(&proxyHost, "proxy", "", "next hop proxy for Go Modules, recommend use https://gopropxy.io")
-	flag.StringVar(&cacheDir, "cacheDir", "", "Go Modules cache dir, default is $GOPATH/pkg/mod/cache/download")
-	flag.StringVar(&listen, "listen", "0.0.0.0:8081", "service listen address")
+	//flag.StringVar(&excludeHost, "exclude", "", "exclude host pattern, you can exclude internal Git services")
+	//flag.StringVar(&proxyHost, "proxy", "", "next hop proxy for Go Modules, recommend use https://gopropxy.io")
+	//flag.StringVar(&cacheDir, "cacheDir", "", "Go Modules cache dir, default is $GOPATH/pkg/mod/cache/download")
+	//flag.StringVar(&listen, "listen", "0.0.0.0:8081", "service listen address")
+	flag.StringVar(&configPath,"config","","config file")
 	flag.Parse()
 
 	if os.Getenv("GIT_TERMINAL_PROMPT") == "" {
@@ -73,9 +77,27 @@ func init() {
 	os.Setenv("GOSUMDB", "off")
 
 	downloadRoot = getDownloadRoot()
+
+	if configPath == ""{
+		log.Fatal(fmt.Sprintf("Error: A configuration file must be specified"))
+	}
+
+	config = UnmarshalConfig(configPath)
+	cacheDir = config.CacheDir
+	proxyHost = config.Proxy
+
+	for _, pkg := range config.LoongsonPKGS {
+		excludeHost += pkg + ","
+	}
+	excludeHost = strings.TrimRight(excludeHost,",")
+
+	listen = "0.0.0.0:" + strconv.FormatInt(int64(config.Port),10)
+
 }
 
 func main() {
+
+
 
 	proxy.CacheDir = cacheDir
 	log.SetPrefix("goproxy.io: ")

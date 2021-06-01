@@ -336,8 +336,6 @@ func NewZip(srcFile string, m module.Version) File {
 		header.Name = filepath.Join(m.Path+"@"+m.Version,strings.TrimPrefix(path, srcFile+"/"))
 		header.Method = zip.Deflate
 		if ! info.IsDir() {
-		//	fmt.Println(header.Name)
-
 			writer, err := archive.CreateHeader(header)
 			file, err := os.Open(path)
 			if err != nil {
