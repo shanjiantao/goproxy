@@ -76,7 +76,6 @@ func init() {
 	os.Setenv("GOPROXY", "direct")
 	os.Setenv("GOSUMDB", "off")
 
-	downloadRoot = getDownloadRoot()
 
 	if configPath == ""{
 		log.Fatal(fmt.Sprintf("Error: A configuration file must be specified"))
@@ -92,6 +91,9 @@ func init() {
 	excludeHost = strings.TrimRight(excludeHost,",")
 
 	listen = "0.0.0.0:" + strconv.FormatInt(int64(config.Port),10)
+
+
+	downloadRoot = getDownloadRoot()
 
 }
 
