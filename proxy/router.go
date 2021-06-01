@@ -18,6 +18,8 @@ import (
 
 	"github.com/goproxyio/goproxy/v2/renameio"
 	"github.com/goproxyio/goproxy/v2/sumdb"
+
+	"github.com/prometheus/client_golang/prometheus"
 )
 
 // ListExpire list data expire data duration.
@@ -56,6 +58,8 @@ func (router *Router) customModResponse(r *http.Response) error {
 				return err
 			}
 			r.Header.Del("Content-Encoding")
+			// rewrite content-length header due to the decompressed data will be refilled in the body
+			r.Header.Set("Content-Length", fmt.Sprint(len(buf)))
 		} else {
 			buf, err = ioutil.ReadAll(r.Body)
 			if err != nil {
@@ -159,15 +163,18 @@ func NewRouter(srv *Server, opts *RouterOptions) *Router {
 
 // ServveHTTP implements http handler.
 func (rt *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	mw := NewMetricsResponseWriter(w)
 	// sumdb handler
 	if strings.HasPrefix(r.URL.Path, "/sumdb/") {
-		sumdb.Handler(w, r)
+		sumdb.Handler(mw, r)
+		totalRequest.With(prometheus.Labels{"mode": "sumdb", "status": mw.status()}).Inc()
 		return
 	}
 
 	if rt.proxy == nil || rt.Direct(strings.TrimPrefix(r.URL.Path, "/")) {
 		log.Printf("------ --- %s [direct]\n", r.URL)
-		rt.srv.ServeHTTP(w, r)
+		rt.srv.ServeHTTP(mw, r)
+		totalRequest.With(prometheus.Labels{"mode": "direct", "status": mw.status()}).Inc()
 		return
 	}
 
@@ -179,19 +186,22 @@ func (rt *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			if strings.HasSuffix(r.URL.Path, "/@latest") {
 				if time.Since(info.ModTime()) >= ListExpire {
 					log.Printf("------ --- %s [proxy]\n", r.URL)
-					rt.proxy.ServeHTTP(w, r)
+					rt.proxy.ServeHTTP(mw, r)
+					totalRequest.With(prometheus.Labels{"mode": "proxy", "status": mw.status()}).Inc()
 				} else {
 					ctype = "text/plain; charset=UTF-8"
-					w.Header().Set("Content-Type", ctype)
+					mw.Header().Set("Content-Type", ctype)
 					log.Printf("------ --- %s [cached]\n", r.URL)
-					http.ServeContent(w, r, "", info.ModTime(), f)
+					http.ServeContent(mw, r, "", info.ModTime(), f)
+					totalRequest.With(prometheus.Labels{"mode": "cached", "status": mw.status()}).Inc()
 				}
 				return
 			}
 
 			i := strings.Index(r.URL.Path, "/@v/")
 			if i < 0 {
-				http.Error(w, "no such path", http.StatusNotFound)
+				http.Error(mw, "no such path", http.StatusNotFound)
+				totalRequest.With(prometheus.Labels{"mode": "proxy", "status": mw.status()}).Inc()
 				return
 			}
 
@@ -199,7 +209,8 @@ func (rt *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			if what == "list" {
 				if time.Since(info.ModTime()) >= ListExpire {
 					log.Printf("------ --- %s [proxy]\n", r.URL)
-					rt.proxy.ServeHTTP(w, r)
+					rt.proxy.ServeHTTP(mw, r)
+					totalRequest.With(prometheus.Labels{"mode": "proxy", "status": mw.status()}).Inc()
 					return
 				}
 				ctype = "text/plain; charset=UTF-8"
@@ -213,18 +224,21 @@ func (rt *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				case ".zip":
 					ctype = "application/octet-stream"
 				default:
-					http.Error(w, "request not recognized", http.StatusNotFound)
+					http.Error(mw, "request not recognized", http.StatusNotFound)
+					totalRequest.With(prometheus.Labels{"mode": "proxy", "status": mw.status()}).Inc()
 					return
 				}
 			}
-			w.Header().Set("Content-Type", ctype)
+			mw.Header().Set("Content-Type", ctype)
 			log.Printf("------ --- %s [cached]\n", r.URL)
-			http.ServeContent(w, r, "", info.ModTime(), f)
+			http.ServeContent(mw, r, "", info.ModTime(), f)
+			totalRequest.With(prometheus.Labels{"mode": "cached", "status": mw.status()}).Inc()
 			return
 		}
 	}
 	log.Printf("------ --- %s [proxy]\n", r.URL)
-	rt.proxy.ServeHTTP(w, r)
+	rt.proxy.ServeHTTP(mw, r)
+	totalRequest.With(prometheus.Labels{"mode": "proxy", "status": mw.status()}).Inc()
 	return
 }
 
